@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Max 4K IPTV</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        body { background-color: #0b0f19; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; user-select: none; }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        .active-tab { background-color: #2563eb; color: white; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- شاشة تسجيل الدخول -->
+    <div id="login-screen" class="flex-1 flex items-center justify-center p-6 bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950">
+        <div class="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-2xl">
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center text-2xl font-bold mb-3 shadow-lg shadow-blue-600/30">TV</div>
+                <h1 class="text-2xl font-bold text-white">تسجيل الدخول للسيرفر</h1>
+                <p class="text-slate-400 text-sm mt-1">أدخل بيانات اشتراكك للمشاهدة</p>
+            </div>
+            
+            <form id="login-form" class="space-y-4">
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">اسم المستخدم (Username)</label>
+                    <input type="text" id="username" required placeholder="أدخل اليوزر" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 text-left" dir="ltr">
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">كلمة المرور (Password)</label>
+                    <input type="password" id="password" required placeholder="أدخل الباسورد" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 text-left" dir="ltr">
+                </div>
+                <div id="login-error" class="text-red-400 text-xs text-center hidden"></div>
+                <button type="submit" id="login-btn" class="w-full bg-blue-600 hover:bg-blue-700 active:scale-95 transition text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-600/30">
+                    دخول
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- الشاشة الرئيسية للتطبيق -->
+    <div id="main-screen" class="hidden flex-1 flex flex-col h-full">
+        <!-- الهيدر -->
+        <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <span class="bg-blue-600 text-xs font-bold px-2.5 py-1 rounded-lg">LIVE</span>
+                <h2 class="font-bold text-lg">Max 4K</h2>
+            </div>
+            <div class="flex items-center gap-3">
+                <span id="exp-date" class="text-xs text-slate-400"></span>
+                <button onclick="logout()" class="text-xs bg-red-500/10 text-red-400 border border-red-500/20 px-3 py-1.5 rounded-lg">خروج</button>
+            </div>
+        </header>
+
+        <!-- مشغل الفيديو -->
+        <div id="player-container" class="hidden bg-black relative w-full aspect-video max-h-[40vh] border-b border-slate-800">
+            <video id="video-player" controls playsinline class="w-full h-full object-contain"></video>
+            <button onclick="closePlayer()" class="absolute top-3 right-3 bg-black/70 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm">✕</button>
+            <div id="now-playing" class="absolute bottom-10 right-3 bg-black/60 px-3 py-1 rounded text-xs text-white pointer-events-none"></div>
+        </div>
+
+        <!-- الأقسام الرئيسية (قنوات - أفلام - مسلسلات) -->
+        <div class="grid grid-cols-3 gap-2 p-3 bg-slate-900/50 border-b border-slate-800">
+            <button onclick="switchSection('live')" id="tab-live" class="active-tab py-2.5 rounded-xl font-bold text-sm transition">📺 القنوات</button>
+            <button onclick="switchSection('vod')" id="tab-vod" class="bg-slate-800 text-slate-300 py-2.5 rounded-xl font-bold text-sm transition">🎬 الأفلام</button>
+            <button onclick="switchSection('series')" id="tab-series" class="bg-slate-800 text-slate-300 py-2.5 rounded-xl font-bold text-sm transition">🎭 المسلسلات</button>
+        </div>
+
+        <!-- شريط البحث -->
+        <div class="px-3 pt-2">
+            <input type="text" id="search-input" onkeyup="filterItems()" placeholder="ابحث عن قناة، فيلم، أو مسلسل..." class="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
+        </div>
+
+        <!-- الباقات (Categories) -->
+        <div id="categories-bar" class="flex gap-2 overflow-x-auto p-3 whitespace-nowrap border-b border-slate-800/60">
+            <!-- يتم تعبئتها بالجافاسكريبت -->
+        </div>
+
+        <!-- قائمة القنوات / الأفلام / المسلسلات -->
+        <div id="content-grid" class="flex-1 overflow-y-auto p-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 content-start">
+            <!-- يتم تعبئتها بالجافاسكريبت -->
+        </div>
+    </div>
+
+    <!-- نافذة حلقات المسلسل -->
+    <div id="series-modal" class="hidden fixed inset-0 bg-black/80 z-50 flex items-end sm:items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl max-h-[80vh] flex flex-col">
+            <div class="p-4 border-b border-slate-800 flex justify-between items-center">
+                <h3 id="series-modal-title" class="font-bold text-base">الحلقات</h3>
+                <button onclick="closeSeriesModal()" class="text-slate-400 hover:text-white text-lg">✕</button>
+            </div>
+            <div id="episodes-list" class="p-4 overflow-y-auto space-y-2 flex-1"></div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
