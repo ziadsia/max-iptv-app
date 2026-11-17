@@ -1,14 +1,15 @@
-// رابط الهوست الخاص بسيرفرك (بدون / في الآخر)
-const SERVER_HOST = "http://max4k.xyz";
+// رابط ملف الإعدادات المركزي (لتعديل الهوست مستقبلاً بدون تغيير الـ APK)
+const CONFIG_URL = "https://raw.githubusercontent.com/ziadsia/max-iptv-app/main/config.json";
 
+let SERVER_HOST = "http://max4k.xyz"; 
 let userData = null;
 let currentSection = 'live';
 let allCategories = [];
 let allItems = [];
 let hls = null;
 
-// التحقق من وجود تسجيل دخول سابق
-window.onload = () => {
+window.onload = async () => {
+    await fetchServerConfig();
     const savedUser = localStorage.getItem('iptv_user');
     const savedPass = localStorage.getItem('iptv_pass');
     if (savedUser && savedPass) {
@@ -17,6 +18,18 @@ window.onload = () => {
         login(savedUser, savedPass);
     }
 };
+
+async function fetchServerConfig() {
+    try {
+        const res = await fetch(CONFIG_URL + "?t=" + new Date().getTime());
+        const data = await res.json();
+        if (data.server_host) {
+            SERVER_HOST = data.server_host;
+        }
+    } catch (e) {
+        console.log("استخدام الهوست الافتراضي");
+    }
+}
 
 document.getElementById('login-form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -28,11 +41,12 @@ document.getElementById('login-form').addEventListener('submit', (e) => {
 async function login(username, password) {
     const btn = document.getElementById('login-btn');
     const errBox = document.getElementById('login-error');
-    btn.innerText = "جاري الاتصال بالسيرفر...";
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin ml-2"></i> جاري الاتصال...';
     btn.disabled = true;
     errBox.classList.add('hidden');
 
     try {
+        await fetchServerConfig();
         const res = await fetch(`${SERVER_HOST}/player_api.php?username=${username}&password=${password}`);
         const data = await res.json();
 
@@ -41,23 +55,24 @@ async function login(username, password) {
             localStorage.setItem('iptv_user', username);
             localStorage.setItem('iptv_pass', password);
 
-            // عرض تاريخ الانتهاء
             if (data.user_info.exp_date) {
                 const date = new Date(data.user_info.exp_date * 1000);
-                document.getElementById('exp-date').innerText = `ينتهي: ${date.toLocaleDateString('ar-EG')}`;
+                document.getElementById('exp-date').innerText = `${date.toLocaleDateString('ar-EG')} `;
+            } else {
+                 document.getElementById('exp-date').innerText = "غير محدود";
             }
 
             document.getElementById('login-screen').classList.add('hidden');
             document.getElementById('main-screen').classList.remove('hidden');
             switchSection('live');
         } else {
-            throw new Error("بيانات الدخول غير صحيحة أو الاشتراك منتهي");
+            throw new Error("بيانات الدخول غير صحيحة");
         }
     } catch (err) {
-        errBox.innerText = err.message || "فشل الاتصال بالسيرفر، تأكد من الإنترنت والبيانات";
+        errBox.innerText = err.message || "فشل الاتصال بالسيرفر";
         errBox.classList.remove('hidden');
     } finally {
-        btn.innerText = "دخول";
+        btn.innerText = "تسجيل الدخول";
         btn.disabled = false;
     }
 }
@@ -74,21 +89,25 @@ async function switchSection(section) {
     currentSection = section;
     document.getElementById('search-input').value = '';
 
-    // تحديث شكل الأزرار
     ['live', 'vod', 'series'].forEach(tab => {
         const el = document.getElementById(`tab-${tab}`);
+        const icon = el.querySelector('i');
         if (tab === section) {
-            el.className = "active-tab py-2.5 rounded-xl font-bold text-sm transition";
+            el.classList.add('active');
         } else {
-            el.className = "bg-slate-800 text-slate-300 py-2.5 rounded-xl font-bold text-sm transition";
+            el.classList.remove('active');
         }
     });
+    
+    const titles = { live: 'القنوات', vod: 'الأفلام', series: 'المسلسلات' };
+    document.getElementById('sidebar-title').innerText = titles[section];
 
     const catAction = section === 'live' ? 'get_live_categories' : section === 'vod' ? 'get_vod_categories' : 'get_series_categories';
     const itemsAction = section === 'live' ? 'get_live_streams' : section === 'vod' ? 'get_vod_streams' : 'get_series';
 
-    document.getElementById('categories-bar').innerHTML = '<span class="text-xs text-slate-400">جاري تحميل الباقات...</span>';
-    document.getElementById('content-grid').innerHTML = '<div class="col-span-full text-center text-slate-400 py-10">جاري التحميل...</div>';
+    document.getElementById('categories-bar').innerHTML = '<div class="text-center text-gray-500 p-4 text-sm"><i class="fa-solid fa-circle-notch fa-spin"></i> جاري تحميل الباقات...</div>';
+    document.getElementById('content-grid').innerHTML = '<div class="col-span-full text-center text-gray-500 py-10 text-sm"><i class="fa-solid fa-satellite-dish fa-2x mb-2"></i><br>اختر باقة من القائمة الجانبية</div>';
+    document.getElementById('items-count').innerText = '0';
 
     try {
         const [catRes, itemsRes] = await Promise.all([
@@ -100,45 +119,56 @@ async function switchSection(section) {
         allItems = await itemsRes.json();
 
         renderCategories();
-        renderItems(allItems.slice(0, 100)); // عرض أول 100 عنصر لسرعة الأداء
+        // عند الدخول أول مرة، لا نعرض كل العناصر لتسريع الأداء، ننتظر اختيار باقة
+        document.getElementById('content-grid').innerHTML = '<div class="col-span-full text-center text-gray-400 py-16"><i class="fa-regular fa-folder-open fa-3x"></i><p class="mt-4">اختر باقة من القائمة الجانبية لعرض المحتوى</p></div>';
     } catch (e) {
-        document.getElementById('content-grid').innerHTML = '<div class="col-span-full text-center text-red-400 py-10">حدث خطأ أثناء جلب البيانات</div>';
+        document.getElementById('content-grid').innerHTML = '<div class="col-span-full text-center text-red-400 py-10"><i class="fa-solid fa-triangle-exclamation"></i> حدث خطأ أثناء جلب البيانات</div>';
     }
 }
 
 function renderCategories() {
     const bar = document.getElementById('categories-bar');
-    bar.innerHTML = `<button onclick="selectCategory('all', this)" class="cat-btn bg-blue-600 text-white text-xs px-3.5 py-1.5 rounded-full font-medium">الكل</button>`;
+    bar.innerHTML = '';
     
-    allCategories.forEach(cat => {
-        const btn = document.createElement('button');
-        btn.className = "cat-btn bg-slate-800 text-slate-300 text-xs px-3.5 py-1.5 rounded-full font-medium hover:bg-slate-700";
-        btn.innerText = cat.category_name;
-        btn.onclick = () => selectCategory(cat.category_id, btn);
-        bar.appendChild(btn);
-    });
+    // زر "الكل"
+    const allBtn = document.createElement('button');
+    allBtn.className = "cat-btn active w-full"; // نجعلها نشطة افتراضياً
+    allBtn.innerHTML = '<i class="fa-solid fa-layer-group ml-2 text-xs"></i> الكل';
+    allBtn.onclick = () => selectCategory('all', allBtn);
+    bar.appendChild(allBtn);
+
+    if (Array.isArray(allCategories)) {
+        allCategories.forEach(cat => {
+            const btn = document.createElement('button');
+            btn.className = "cat-btn w-full truncate";
+            btn.innerHTML = `<i class="fa-regular fa-folder ml-2 text-xs"></i> ${cat.category_name}`;
+            btn.onclick = () => selectCategory(cat.category_id, btn);
+            bar.appendChild(btn);
+        });
+    }
 }
 
 function selectCategory(catId, btnElement) {
-    document.querySelectorAll('.cat-btn').forEach(b => {
-        b.classList.remove('bg-blue-600', 'text-white');
-        b.classList.add('bg-slate-800', 'text-slate-300');
-    });
-    btnElement.classList.remove('bg-slate-800', 'text-slate-300');
-    btnElement.classList.add('bg-blue-600', 'text-white');
+    // تحديث الأزرار النشطة
+    document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+    btnElement.classList.add('active');
 
+    let filtered = [];
     if (catId === 'all') {
-        renderItems(allItems.slice(0, 150));
+        filtered = allItems;
     } else {
-        const filtered = allItems.filter(item => item.category_id == catId);
-        renderItems(filtered);
+        filtered = allItems.filter(item => item.category_id == catId);
     }
+    
+    renderItems(filtered);
+    document.getElementById('items-count').innerText = filtered.length;
 }
 
 function filterItems() {
     const query = document.getElementById('search-input').value.toLowerCase();
     const filtered = allItems.filter(item => (item.name || '').toLowerCase().includes(query));
-    renderItems(filtered.slice(0, 100));
+    renderItems(filtered);
+    document.getElementById('items-count').innerText = filtered.length;
 }
 
 function renderItems(items) {
@@ -146,25 +176,40 @@ function renderItems(items) {
     grid.innerHTML = '';
 
     if (!items || items.length === 0) {
-        grid.innerHTML = '<div class="col-span-full text-center text-slate-500 py-10">لا توجد نتائج</div>';
+        grid.innerHTML = '<div class="col-span-full text-center text-gray-500 py-10"><i class="fa-solid fa-search fa-2x mb-2"></i><br>لا توجد نتائج</div>';
         return;
     }
 
-    items.forEach(item => {
+    // تحسين الأداء: عدم عرض أكثر من 200 عنصر في المرة الواحدة
+    const displayItems = items.slice(0, 200);
+
+    displayItems.forEach(item => {
         const card = document.createElement('div');
-        card.className = "bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col items-center text-center cursor-pointer active:scale-95 transition hover:border-blue-500/50";
+        // تغيير تنسيق البطاقة لتكون مربعة ومناسبة للواجهة
+        card.className = "item-card bg-card-bg rounded-2xl p-3 flex flex-col items-center text-center cursor-pointer border border-gray-700";
         
         const imgUrl = item.stream_icon || item.cover || '';
-        const fallbackImg = 'https://via.placeholder.com/150x150/1e293b/94a3b8?text=TV';
+        const fallbackImg = 'https://via.placeholder.com/200x300/1e293b/94a3b8?text=' + encodeURIComponent(item.name.substring(0,2));
 
         card.innerHTML = `
-            <img src="${imgUrl}" onerror="this.src='${fallbackImg}'" class="w-16 h-16 object-contain rounded-lg mb-2 bg-slate-950 p-1">
-            <span class="text-xs font-medium text-slate-200 line-clamp-2">${item.name}</span>
+            <div class="w-full aspect-[2/3] rounded-xl mb-3 overflow-hidden bg-gray-950 flex items-center justify-center border border-gray-600/50">
+                <img src="${imgUrl}" onerror="this.src='${fallbackImg}'" class="w-full h-full object-cover group-hover:scale-110 transition duration-500" loading="lazy">
+            </div>
+            <span class="text-sm font-semibold text-gray-200 line-clamp-2 px-1 leading-tight">${item.name}</span>
+            ${item.rating ? `<div class="text-yellow-400 text-xs mt-1"><i class="fa-solid fa-star"></i> ${item.rating}</div>` : ''}
+            ${item.year ? `<div class="text-gray-500 text-xs mt-0.5">${item.year}</div>` : ''}
         `;
 
         card.onclick = () => handleItemClick(item);
         grid.appendChild(card);
     });
+    
+    if (items.length > 200) {
+        const moreNotice = document.createElement('div');
+        moreNotice.className = "col-span-full text-center text-gray-600 text-xs py-4";
+        moreNotice.innerText = `+${items.length - 200} عنصر إضافي (تم عرض أول 200 فقط للسرعة)`;
+        grid.appendChild(moreNotice);
+    }
 }
 
 function handleItemClick(item) {
@@ -186,10 +231,7 @@ function playStream(url, title, isLive) {
     document.getElementById('now-playing').innerText = title;
     container.classList.remove('hidden');
 
-    if (hls) {
-        hls.destroy();
-        hls = null;
-    }
+    if (hls) { hls.destroy(); hls = null; }
 
     if (isLive && Hls.isSupported()) {
         hls = new Hls();
@@ -200,6 +242,9 @@ function playStream(url, title, isLive) {
         video.src = url;
         video.play();
     }
+    
+    // تحريك الشاشة للأعلى للتركيز على المشغل
+    window.scrollTo(0,0);
 }
 
 function closePlayer() {
@@ -214,7 +259,7 @@ async function openSeriesDetails(series) {
     const modal = document.getElementById('series-modal');
     const list = document.getElementById('episodes-list');
     document.getElementById('series-modal-title').innerText = series.name;
-    list.innerHTML = '<p class="text-center text-slate-400 text-sm">جاري تحميل الحلقات...</p>';
+    list.innerHTML = '<div class="text-center text-gray-400 p-10"><i class="fa-solid fa-spinner fa-spin"></i> جاري تحميل الحلقات...</div>';
     modal.classList.remove('hidden');
 
     try {
@@ -223,27 +268,59 @@ async function openSeriesDetails(series) {
         list.innerHTML = '';
 
         const episodesObj = data.episodes || {};
-        Object.keys(episodesObj).forEach(seasonNum => {
-            const seasonHeader = document.createElement('div');
-            seasonHeader.className = "text-xs font-bold text-blue-400 pt-2 pb-1";
-            seasonHeader.innerText = `الموسم ${seasonNum}`;
-            list.appendChild(seasonHeader);
+        const seasons = Object.keys(episodesObj).sort((a,b) => parseInt(b) - parseInt(a)); // ترتيب المواسم من الأحدث للأقدم
 
-            episodesObj[seasonNum].forEach(ep => {
+        if (seasons.length === 0) {
+             list.innerHTML = '<div class="text-center text-gray-400 p-6">لا توجد حلقات متوفرة لهذا المسلسل</div>';
+             return;
+        }
+
+        seasons.forEach(seasonNum => {
+            const seasonContainer = document.createElement('div');
+            seasonContainer.className = "bg-gray-950 rounded-2xl p-5 border border-gray-800";
+            
+            const seasonHeader = document.createElement('button');
+            seasonHeader.className = "w-full flex justify-between items-center text-lg font-bold text-primary pb-3 mb-3 border-b border-gray-800";
+            seasonHeader.innerHTML = `<span>الموسم ${seasonNum} <span class='text-sm text-gray-400 mr-2'>(${episodesObj[seasonNum].length} حلقة)</span></span> <i class="fa-solid fa-chevron-down text-sm"></i>`;
+            seasonHeader.onclick = () => {
+                const epContent = document.getElementById(`season-eps-${seasonNum}`);
+                epContent.classList.toggle('hidden');
+                seasonHeader.querySelector('i').classList.toggle('fa-chevron-up');
+            };
+            seasonContainer.appendChild(seasonHeader);
+
+            const episodesContent = document.createElement('div');
+            episodesContent.id = `season-eps-${seasonNum}`;
+            episodesContent.className = "grid grid-cols-1 sm:grid-cols-2 gap-3"; 
+            // إخفاء المواسم القديمة افتراضياً
+            if (seasonNum !== seasons[0]) { episodesContent.classList.add('hidden'); seasonHeader.querySelector('i').classList.add('fa-chevron-up'); }
+
+
+            episodesObj[seasonNum].sort((a,b) => a.episode_num - b.episode_num).forEach(ep => {
                 const epBtn = document.createElement('button');
-                epBtn.className = "w-full text-right bg-slate-800 hover:bg-slate-700 p-3 rounded-xl text-xs flex justify-between items-center";
-                epBtn.innerHTML = `<span>${ep.title || 'حلقة ' + ep.episode_num}</span><span class="text-blue-400">▶ تشغيل</span>`;
+                epBtn.className = "w-full text-right bg-card-bg hover:bg-gray-700 p-4 rounded-xl text-sm flex items-center gap-3 border border-gray-700 hover:border-primary group transition";
+                epBtn.innerHTML = `
+                    <div class="bg-gray-700 group-hover:bg-primary text-white w-10 h-10 rounded-lg flex items-center justify-center font-bold">${ep.episode_num}</div>
+                    <div class="flex-1 truncate">
+                        <div class="text-gray-200 font-semibold truncate group-hover:text-white">${ep.title || 'حلقة ' + ep.episode_num}</div>
+                        ${ep.duration ? `<div class="text-gray-400 text-xs">${Math.round(ep.duration / 60)} دقيقة</div>` : ''}
+                    </div>
+                     <i class="fa-solid fa-play text-primary opacity-70 group-hover:opacity-100 group-hover:scale-110 transition"></i>
+                `;
                 epBtn.onclick = () => {
                     const ext = ep.container_extension || 'mp4';
                     const url = `${SERVER_HOST}/series/${userData.username}/${userData.password}/${ep.id}.${ext}`;
                     closeSeriesModal();
-                    playStream(url, `${series.name} - ${ep.title}`, false);
+                    playStream(url, `${series.name} - الموسم ${seasonNum} - حلقة ${ep.episode_num} (${ep.title})`, false);
                 };
-                list.appendChild(epBtn);
+                episodesContent.appendChild(epBtn);
             });
+            
+            seasonContainer.appendChild(episodesContent);
+            list.appendChild(seasonContainer);
         });
     } catch (e) {
-        list.innerHTML = '<p class="text-center text-red-400 text-sm">فشل تحميل الحلقات</p>';
+        list.innerHTML = '<p class="text-center text-red-400 text-sm p-6">فشل تحميل الحلقات</p>';
     }
 }
 
