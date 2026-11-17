@@ -1,0 +1,12 @@
+{
+  "appId": "com.max4k.iptvplayer",
+  "appName": "Max 4K IPTV",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}
